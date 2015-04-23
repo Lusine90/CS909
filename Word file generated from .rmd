@@ -1,0 +1,477 @@
+Week10
+Lusine Shirvanyan
+Tuesday, April 21, 2015
+setwd("C:/Users/Lusine/Desktop/Term2/CS909/assignments/AssLast")
+
+# Installing necessary packages
+
+#install.packages("tm")
+require("tm")
+## Loading required package: tm
+## Warning: package 'tm' was built under R version 3.1.3
+## Loading required package: NLP
+## Warning: package 'NLP' was built under R version 3.1.3
+library(stringr) #for str_count
+## Warning: package 'stringr' was built under R version 3.1.2
+#install.packages("SnowballC")
+library(SnowballC) #for stemming
+## Warning: package 'SnowballC' was built under R version 3.1.3
+#install.packages("topicmodels")
+require("topicmodels")
+## Loading required package: topicmodels
+## Warning: package 'topicmodels' was built under R version 3.1.3
+# Reading data from file
+reutersDataset = read.csv(file="reutersCSV.csv",header=T,sep=",")
+
+ # Remove rows with 'empty' texts ('empty', if has less than 5 words)
+
+toBeRemoved <- numeric(0)
+
+for(i in 1:nrow(reutersDataset)) 
+{
+    nwords <- length(strsplit(toString(reutersDataset[i,140]),' ')[[1]])
+
+    if(nwords < 5) 
+    {
+      toBeRemoved <- c(toBeRemoved, i)
+    }
+}
+dataset <- reutersDataset[-toBeRemoved,]
+
+
+topTenTopics <- c("topic.earn","topic.acq","topic.money.fx","topic.grain","topic.crude","topic.trade","topic.interest","topic.ship","topic.wheat","topic.corn")
+
+#Remove all documents with class different from 10  most  populous  classes,    namely: (earn,  
+#acquisitions,  money-fx,   grain,  crude,  trade,  interest,   ship,   wheat,  corn).
+
+topTopicsDataset <- subset(dataset, select=c(topTenTopics)) 
+
+topTopicsIndexes <- which(rowSums(topTopicsDataset) > 0)
+
+datasetFiltered <- topTopicsDataset[topTopicsIndexes,]
+
+# Get list of values from purpose column to use it for train'test dataset separation
+purposeList <- dataset[topTopicsIndexes, ]$purpose
+
+# Get list of classes for documents 
+# Since some documents are assigned multiple topics, we will assign only majority class
+classList <- as.factor(colnames(datasetFiltered)[max.col(t(t(datasetFiltered) * colSums(datasetFiltered)))])
+
+#classList <- factor(classList)    # this line drops the empty level in the factor 
+# Getting doc texts from the last column of dataset and creating corpus
+reuters <- dataset[topTopicsIndexes, 140]
+
+reutersCorpus <- Corpus(VectorSource(reuters))
+
+# Data preprocessing
+reutersCorpus <- tm_map(reutersCorpus, content_transformer(tolower))
+reutersCorpus <- tm_map(reutersCorpus, removeNumbers)
+reutersCorpus <- tm_map(reutersCorpus, removePunctuation)
+reutersCorpus <- tm_map(reutersCorpus, removeWords, stopwords("english"))
+reutersCorpus <- tm_map(reutersCorpus, stripWhitespace)
+reutersCorpus <- tm_map(reutersCorpus, PlainTextDocument)
+reutersCorpus <- tm_map(reutersCorpus, removeWords, c("reuter"))
+reutersCorpus <- tm_map(reutersCorpus, stemDocument, language = "english")
+
+
+#2  Preparing BOW and topic models for classification
+
+#Create document term matrix from corpus
+reutersDtm <- DocumentTermMatrix(reutersCorpus,
+                                 control = list(minWordLength = 2))
+
+# Reduce the matrix to words which occur in at least 15 documents
+reutersDtmFiltered <- reutersDtm[ , which(table(reutersDtm$j) >= 15)]
+
+reutersDtmFiltered <- removeSparseTerms(reutersDtmFiltered, 0.999)
+reutersDtmFiltered <- reutersDtmFiltered[rowSums(as.matrix(reutersDtmFiltered)) > 0,]
+
+reutersDtmTfIdf <- weightTfIdf(reutersDtmFiltered)
+
+reutersDtmTfIdf
+## <<DocumentTermMatrix (documents: 8649, terms: 2676)>>
+## Non-/sparse entries: 367724/22777000
+## Sparsity           : 98%
+## Maximal term length: 17
+## Weighting          : term frequency - inverse document frequency (normalized) (tf-idf)
+#As we can see from the above result, the document-term matrix is composed of 2676 terms and
+#8649 documents. It is very sparse, with 98% of the entries being zero.
+
+# Split train and test data using purpose column list
+trainIndexList <- which(purposeList == 'train')
+testIndexList <- which(purposeList == 'test')
+
+length(trainIndexList)
+## [1] 5960
+length(testIndexList)
+## [1] 2331
+# We will use top N terms from BOW for classification
+nTerm = 100    
+# Sort by decreasing order of column sums so that top terms will be first
+reutersDTMTfIdfTrain <- reutersDtmTfIdf[trainIndexList, ]
+reutersTermsSorted <- sort(colSums(as.matrix(reutersDTMTfIdfTrain)), decreasing=T)
+reutersTopNTerms <-names(reutersTermsSorted)[1:nTerm]
+
+
+# Make a data frame with top N terms as cols, docs as rows and
+# cell values as tfXIDF for each document and class column at the end
+reutersTrainSetBOW <- as.data.frame(inspect((reutersDtmTfIdf[trainIndexList, reutersTopNTerms])))
+## <<DocumentTermMatrix (documents: 5960, terms: 100)>>
+## Non-/sparse entries: 80847/515153
+## Sparsity           : 86%
+## Maximal term length: 10
+## Weighting          : term frequency - inverse document frequency (normalized) (tf-idf)
+
+
+
+reutersTestSetBOW$class<-classList[trainIndexList]
+
+# We will need whole dataset for k-cross validation
+reutersDFBOW <- rbind(reutersTrainSetBOW, reutersTestSetBOW)
+# Topic Models
+k <- 20 # set number of topics
+# generate model
+reutersDTMTrainAndTest <- rbind(reutersDtmFiltered[trainIndexList,], reutersDtmFiltered[testIndexList,])
+reutersLdaModel <- LDA(reutersDTMTrainAndTest, k)
+# Now we have a topic model with 5960 docs and 20 topics
+
+# Make a data frame with topics as cols, docs as rows and
+# cell values as posterior topic distribution for each document
+reutersDFTMWhole <- as.data.frame(reutersLdaModel@gamma) 
+
+# Split into train and test sets
+reutersTrainSetTM <- as.data.frame(reutersDFTMWhole[trainIndexList, ])
+reutersTrainSetTM$class<-classList[trainIndexList]
+
+reutersTestSetTM <- as.data.frame(reutersDFTMWhole[testIndexList, ])
+reutersTestSetTM$class<-classList[testIndexList]
+
+reutersDFTM <- rbind(reutersTrainSetTM, reutersTestSetTM)
+
+# add topic models to BOW
+#reutersDF <- cbind(reutersDFBOW[, -(nTerm+1)], reutersDFTM)
+#reutersTrainSet <- cbind(reutersTrainSetBOW[, -(nTerm+1)], reutersTrainSetTM)
+#reutersTestSet <- cbind(reutersTestSetBOW[, -(nTerm+1)], reutersTestSetTM)
+#3 Classification
+
+require(e1071)
+## Loading required package: e1071
+## Warning: package 'e1071' was built under R version 3.1.2
+require(randomForest)
+## Loading required package: randomForest
+## Warning: package 'randomForest' was built under R version 3.1.3
+## randomForest 4.6-10
+## Type rfNews() to see new features/changes/bug fixes.
+# NAIVE BAYES on BOW
+reutersNBModelBOW <- naiveBayes(class ~ ., reutersTrainSetBOW)
+reutersNBPred <- predict(reutersNBModelBOW, reutersTestSetBOW[, -(nTerm + 1)])
+
+#Compute confusion matrix
+(reutersNBConfMatrix <- table(Predicted = reutersNBPred, Real = reutersTestSetBOW[, nTerm + 1]))
+##                 Real
+## Predicted        topic.acq topic.crude topic.earn topic.grain
+##   topic.acq            542           7        203           2
+##   topic.crude           73         136         41          19
+##   topic.earn             6           0        579           0
+##   topic.grain            2           9         13         117
+##   topic.interest        23           1         14          15
+##   topic.money.fx         4           3          5          32
+##   topic.ship            56          33         30          19
+##   topic.trade            4          47        139          22
+##   topic.wheat          765          89       1701         171
+##                 Real
+## Predicted        topic.interest topic.money.fx topic.ship topic.trade
+##   topic.acq                   0              4          2           3
+##   topic.crude                 2              3          4           8
+##   topic.earn                  0              0          0           0
+##   topic.grain                 0              0          3           6
+##   topic.interest             28             16          6           8
+##   topic.money.fx             35            223          9          40
+##   topic.ship                  0              2         33           4
+##   topic.trade                 4             21          4         164
+##   topic.wheat                85            195         62          61
+##                 Real
+## Predicted        topic.wheat
+##   topic.acq                0
+##   topic.crude              0
+##   topic.earn               0
+##   topic.grain              0
+##   topic.interest           0
+##   topic.money.fx           0
+##   topic.ship               0
+##   topic.trade              0
+##   topic.wheat              3
+#Compare classifier performance using 10 cross validation
+(reutersNBError <- tune(naiveBayes, class ~ ., data = na.omit(reutersDFBOW), cross = 10, best.model = T))
+## 
+## Error estimation of 'naiveBayes' using 10-fold cross validation: 0.6864933
+#Naive Bayes - topic Models
+
+reutersNBModelTM <- naiveBayes(class ~ ., reutersTrainSetTM)
+reutersNBPredTM <- predict(reutersNBModelTM, reutersTestSetTM[, -(k + 1)])
+
+#Compute confusion matrix
+(reutersNBConfMatrixTM <- table(Predicted = reutersNBPredTM, Real = reutersTestSetTM[, k + 1]))
+##                 Real
+## Predicted        topic.acq topic.crude topic.earn topic.grain
+##   topic.acq             53          10         96          14
+##   topic.crude           13           5         15           4
+##   topic.earn           128          53        289          22
+##   topic.grain           12           0         18           5
+##   topic.interest        10           3          3           2
+##   topic.money.fx         8           7         39           6
+##   topic.ship            12           2         13           4
+##   topic.trade           27           9         45           3
+##   topic.wheat          378          66        534          74
+##                 Real
+## Predicted        topic.interest topic.money.fx topic.ship topic.trade
+##   topic.acq                   6             10          4           8
+##   topic.crude                 0              3          2           7
+##   topic.earn                 16             39          8          14
+##   topic.grain                 1              1          0           3
+##   topic.interest              0              2          0           2
+##   topic.money.fx              2              4          2           4
+##   topic.ship                  0              1          0           0
+##   topic.trade                 1              6          1           7
+##   topic.wheat                38             76         25          56
+##                 Real
+## Predicted        topic.wheat
+##   topic.acq                0
+##   topic.crude              0
+##   topic.earn               0
+##   topic.grain              0
+##   topic.interest           0
+##   topic.money.fx           0
+##   topic.ship               0
+##   topic.trade              0
+##   topic.wheat              0
+#Compare classifier performance using 10 cross validation
+(reutersNBErrorTM <- tune(naiveBayes, class ~ ., data = na.omit(reutersDFTM), cross = 10, best.model = T))
+# As we can see, topic models perform better
+
+
+#Naive Bayes - Bow and topic Models
+
+#reutersNBModel <- naiveBayes(class ~ ., reutersTrainSet)
+#reutersNBPred <- predict(reutersNBModel, reutersTestSet[, -(nTerm + k + 1)])
+
+#Compute confusion matrix
+#(reutersNBConfMatrix <- table(Predicted = reutersNBPred, Real = reutersTestSet[, nTerm + k + 1]))
+
+#Compare classifier performance using 10 cross validation
+#(reutersNBError <- tune(naiveBayes, class ~ ., data = reutersDFTM, cross = 10, best.model = T))
+
+
+
+#Random forest - topic models
+#set.seed(100)
+#reutersRFModel <- randomForest(class ~ . , data = reutersTrainSetTM,  ntree = 100)
+#reutersRFPred <- predict(reutersRFModel, reutersTestSetTM[, -(k + 1)])
+
+#Confusion matrix
+#(reutersRFConfMatrix <- table(Predicted = reutersRFPred, Real = reutersTestSetTM[, k + 1]))
+
+#Compare classifier performance using 10 cross validation
+#(tune(randomForest, class ~ ., data = reutersDFTM, cross = 10, best.model = TRUE))
+
+# SUPPORT VECTOR MACHINES - topic models
+reutersSVMModel <- svm(class ~ ., data = reutersTrainSetTM,  cost = 100, gamma = 1)
+reutersSVMPred <- predict(reutersSVMModel,  reutersTestSetTM[, -(k+1)])
+
+(reutersSVMConfMatrix <- table(Predicted = reutersSVMPred, Real = reutersTestSetTM[1:length(reutersSVMPred), k+1]))
+##                 Real
+## Predicted        topic.acq topic.crude topic.earn topic.grain
+##   topic.acq            172          34        255          39
+##   topic.crude           30           7         36           5
+##   topic.earn           281          61        445          58
+##   topic.grain           33           0         37          10
+##   topic.interest         4           3          7           1
+##   topic.money.fx        27           9         44           9
+##   topic.ship             6           3         10           3
+##   topic.trade           16           3         20           2
+##   topic.wheat            0           0          0           0
+##                 Real
+## Predicted        topic.interest topic.money.fx topic.ship topic.trade
+##   topic.acq                  21             38          8          36
+##   topic.crude                 1              1          4           7
+##   topic.earn                 33             57         19          36
+##   topic.grain                 3              7          0           4
+##   topic.interest              0              2          1           3
+##   topic.money.fx              2              7          1           5
+##   topic.ship                  0              0          0           0
+##   topic.trade                 1              3          1           2
+##   topic.wheat                 0              0          0           0
+##                 Real
+## Predicted        topic.wheat
+##   topic.acq                0
+##   topic.crude              0
+##   topic.earn               0
+##   topic.grain              0
+##   topic.interest           0
+##   topic.money.fx           0
+##   topic.ship               0
+##   topic.trade              0
+##   topic.wheat              0
+#Compare classifier performance using 10 cross validation
+(tune(svm, class ~ ., data = reutersDFTM, cross = 10, best.model = TRUE))
+## 
+## Error estimation of 'svm' using 10-fold cross validation: 0.2773755
+#Error estimation of 'svm' using 10-fold cross validation: 0.2620144
+PerfMeasures <- function(confMatrix)
+{
+        nInstance = sum(confMatrix)
+        TP = array()
+        TN = array()
+        FP = array()
+        FN = array()
+        
+        accuracy = array()
+        recall = array()
+        precision = array()
+        f_measure = array()
+        macroAverage = list()
+        microAverage = list()
+        
+        for(k in 1:nrow(confMatrix)) 
+        {
+            TP[k] = confMatrix[k,k]
+            FP[k] = sum(confMatrix[k,]) - TP[k]
+            FN[k] = sum(confMatrix[,k]) - TP[k]
+           
+            
+            accuracy[k]  = TP[k] / colSums(confMatrix)[k]
+            recall[k]    = TP[k] / (TP[k] + FN[k])
+            precision[k] = TP[k] / (TP[k] + FP[k])
+            f_measure[k] = 2 * precision[k] * recall[k] / (precision[k] + recall[k])    
+        }
+       
+       perfMeasures <- data.frame(TP,FP, FN, accuracy, recall, precision,f_measure, row.names = row.names(confMatrix))
+       
+       microAverage$Recall <- sum(perfMeasures[,1])/(sum(perfMeasures[,c(1,3)]))
+       microAverage$Precision <- sum(perfMeasures[,1])/(sum(perfMeasures[,c(1,2)]))
+       macroAverage$Recall <- sum(perfMeasures[,5], na.rm = TRUE)/ nInstance
+       macroAverage$Precision <- sum(perfMeasures[,6], na.rm = TRUE)/ nInstance
+       
+  return(list("Performance measures" = perfMeasures, "MicroAveraging" = microAverage, "Macro Averaging" = macroAverage))
+ 
+}
+
+PerfMeasures(reutersNBConfMatrix)
+## $`Performance measures`
+##                 TP   FP   FN  accuracy    recall    precision   f_measure
+## topic.acq      542  221  933 0.3674576 0.3674576 0.7103538663 0.484361037
+## topic.crude    136  150  189 0.4184615 0.4184615 0.4755244755 0.445171849
+## topic.earn     579    6 2146 0.2124771 0.2124771 0.9897435897 0.349848943
+## topic.grain    117   33  280 0.2947103 0.2947103 0.7800000000 0.427787934
+## topic.interest  28   83  126 0.1818182 0.1818182 0.2522522523 0.211320755
+## topic.money.fx 223  128  241 0.4806034 0.4806034 0.6353276353 0.547239264
+## topic.ship      33  144   90 0.2682927 0.2682927 0.1864406780 0.220000000
+## topic.trade    164  241  130 0.5578231 0.5578231 0.4049382716 0.469241774
+## topic.wheat      3 3129    0 1.0000000 1.0000000 0.0009578544 0.001913876
+## 
+## $MicroAveraging
+## $MicroAveraging$Recall
+## [1] 0.3062081
+## 
+## $MicroAveraging$Precision
+## [1] 0.3062081
+## 
+## 
+## $`Macro Averaging`
+## $`Macro Averaging`$Recall
+## [1] 0.000634504
+## 
+## $`Macro Averaging`$Precision
+## [1] 0.0007442179
+PerfMeasures(reutersNBConfMatrixTM)
+## $`Performance measures`
+##                 TP   FP  FN   accuracy     recall  precision  f_measure
+## topic.acq       53  148 588 0.08268331 0.08268331 0.26368159 0.12589074
+## topic.crude      5   44 150 0.03225806 0.03225806 0.10204082 0.04901961
+## topic.earn     289  280 763 0.27471483 0.27471483 0.50790861 0.35657002
+## topic.grain      5   35 129 0.03731343 0.03731343 0.12500000 0.05747126
+## topic.interest   0   22  64 0.00000000 0.00000000 0.00000000        NaN
+## topic.money.fx   4   68 138 0.02816901 0.02816901 0.05555556 0.03738318
+## topic.ship       0   32  42 0.00000000 0.00000000 0.00000000        NaN
+## topic.trade      7   92  94 0.06930693 0.06930693 0.07070707 0.07000000
+## topic.wheat      0 1247   0        NaN        NaN 0.00000000        NaN
+## 
+## $MicroAveraging
+## $MicroAveraging$Recall
+## [1] 0.1557272
+## 
+## $MicroAveraging$Precision
+## [1] 0.1557272
+## 
+## 
+## $`Macro Averaging`
+## $`Macro Averaging`$Recall
+## [1] 0.0002249874
+## 
+## $`Macro Averaging`$Precision
+## [1] 0.0004825799
+PerfMeasures(reutersSVMConfMatrix)
+## $`Performance measures`
+##                 TP  FP  FN   accuracy     recall  precision  f_measure
+## topic.acq      172 431 397 0.30228471 0.30228471 0.28524046 0.29351536
+## topic.crude      7  84 113 0.05833333 0.05833333 0.07692308 0.06635071
+## topic.earn     445 545 409 0.52107728 0.52107728 0.44949495 0.48264642
+## topic.grain     10  84 117 0.07874016 0.07874016 0.10638298 0.09049774
+## topic.interest   0  21  61 0.00000000 0.00000000 0.00000000        NaN
+## topic.money.fx   7  97 108 0.06086957 0.06086957 0.06730769 0.06392694
+## topic.ship       0  22  34 0.00000000 0.00000000 0.00000000        NaN
+## topic.trade      2  46  91 0.02150538 0.02150538 0.04166667 0.02836879
+## topic.wheat      0   0   0        NaN        NaN        NaN        NaN
+## 
+## $MicroAveraging
+## $MicroAveraging$Recall
+## [1] 0.3258996
+## 
+## $MicroAveraging$Precision
+## [1] 0.3258996
+## 
+## 
+## $`Macro Averaging`
+## $`Macro Averaging`$Recall
+## [1] 0.0005285405
+## 
+## $`Macro Averaging`$Precision
+## [1] 0.0005205351
+#4. Clustering
+#install.packages('cluster')
+#install.packages('flexclust')
+#install.packages('fpc')
+require(cluster)
+## Loading required package: cluster
+require(flexclust)
+## Loading required package: flexclust
+## Warning: package 'flexclust' was built under R version 3.1.3
+## Loading required package: grid
+## Loading required package: lattice
+## Loading required package: modeltools
+## Warning: package 'modeltools' was built under R version 3.1.3
+## Loading required package: stats4
+require(fpc)
+## Loading required package: fpc
+## Warning: package 'fpc' was built under R version 3.1.3
+reutersClustering <- reutersDFTM
+reutersClustering$class <- NULL
+
+reutersScale <- scale(reutersClustering)
+reutersDist <- dist(reutersScale, method = "euclidean") 
+
+# Clustering using CLARA
+reutersClara <- clara(na.omit(reutersScale), 10, samples=50)
+#(claraKm <- table(reutersDFTM[1:length(reutersClara),]$class, reutersClara$clustering))
+
+plotcluster(na.omit(reutersScale), reutersClara$clustering)
+ 
+# k-means Clustering
+reuterskMean <- kmeans(na.omit(reutersScale), 10)
+#(reuterskMeanKm <- table(reutersDFTM$class, reuterskMean$cluster[1:nrow(reutersDFTM)]))
+
+plotcluster(na.omit(reutersScale), reuterskMean$cluster)
+ 
+# Comparing the similarity of two clusterings
+#cluster.stats(reutersDist, reutersClara$clustering, reuterskMean$cluster)
+
