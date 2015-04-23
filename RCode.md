@@ -6,16 +6,16 @@ output: word_document
 
 ---
 ```{r}
-setwd("C:/Users/Lusine/Desktop/Term2/CS909/assignments/AssLast")
+#setwd("C:/Users/Lusine/Desktop/Term2/CS909/assignments/AssLast")
 
 # Installing necessary packages
 
-#install.packages("tm")
+install.packages("tm")
 require("tm")
 
 library(stringr) #for str_count
 
-#install.packages("SnowballC")
+install.packages("SnowballC")
 library(SnowballC) #for stemming
 
 #install.packages("topicmodels")
