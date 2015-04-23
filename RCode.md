@@ -149,11 +149,6 @@ reutersTestSetTM$class<-classList[testIndexList]
 
 reutersDFTM <- rbind(reutersTrainSetTM, reutersTestSetTM)
 
-# add topic models to BOW
-#reutersDF <- cbind(reutersDFBOW[, -(nTerm+1)], reutersDFTM)
-#reutersTrainSet <- cbind(reutersTrainSetBOW[, -(nTerm+1)], reutersTrainSetTM)
-#reutersTestSet <- cbind(reutersTestSetBOW[, -(nTerm+1)], reutersTestSetTM)
-
 ```
 
 ```{r}
@@ -183,18 +178,7 @@ reutersNBPredTM <- predict(reutersNBModelTM, reutersTestSetTM[, -(k + 1)])
 (reutersNBConfMatrixTM <- table(Predicted = reutersNBPredTM, Real = reutersTestSetTM[, k + 1]))
 
 #Compare classifier performance using 10 cross validation
-#(reutersNBErrorTM <- tune(naiveBayes, class ~ ., data = na.omit(reutersDFTM), cross = 10, best.model = T))
-
-#Naive Bayes - Bow and topic Models
-
-#reutersNBModel <- naiveBayes(class ~ ., reutersTrainSet)
-#reutersNBPred <- predict(reutersNBModel, reutersTestSet[, -(nTerm + k + 1)])
-
-#Compute confusion matrix
-#(reutersNBConfMatrix <- table(Predicted = reutersNBPred, Real = reutersTestSet[, nTerm + k + 1]))
-
-#Compare classifier performance using 10 cross validation
-(reutersNBError <- tune(naiveBayes, class ~ ., data = reutersDFTM, cross = 10, best.model = T))
+(reutersNBErrorTM <- tune(naiveBayes, class ~ ., data = na.omit(reutersDFTM), cross = 10, best.model = T))
 
 # As we can see, topic models perform better
 
@@ -282,7 +266,7 @@ reutersDist <- dist(reutersScale, method = "euclidean")
 
 # Clustering using CLARA
 reutersClara <- clara(na.omit(reutersScale), 10, samples=50)
-(claraKm <- table(reutersDFTM[1:length(reutersClara),]$class, reutersClara$clustering))
+#(claraKm <- table(reutersDFTM[1:length(reutersClara),]$class, reutersClara$clustering))
 
 plotcluster(na.omit(reutersScale), reutersClara$clustering)
 
@@ -294,7 +278,7 @@ plotcluster(na.omit(reutersScale), reuterskMean$cluster)
 
 
 # Comparing the similarity of two clusterings
-cluster.stats(reutersDist, reutersClara$clustering, reuterskMean$cluster)
+#cluster.stats(reutersDist, reutersClara$clustering, reuterskMean$cluster)
 
 
 ```
