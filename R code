@@ -6,7 +6,7 @@ output: word_document
 
 ---
 ```{r}
-setwd("C:/Users/Lusine/Desktop/Term2/CS909/assignments/AssLast")
+#setwd("C:/Users/Lusine/Desktop/Term2/CS909/assignments/AssLast")
 
 # Installing necessary packages
 
