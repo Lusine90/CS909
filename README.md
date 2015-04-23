@@ -1,7 +1,3 @@
-# CS909
-Data Mining 
-Week 10 Assignment Lusine Shirvanyan (1457676)
-
 ---
 title: "Week10"
 author: "Lusine Shirvanyan"
@@ -218,7 +214,7 @@ reutersNBPredTM <- predict(reutersNBModelTM, reutersTestSetTM[, -(k + 1)])
 
 #Random forest - topic models
 #set.seed(100)
-#reutersRFModel <- randomForest(class~.,importance=T, data=reutersTrainSetTM,  ntree = 100)
+#reutersRFModel <- randomForest(class ~ . , data = reutersTrainSetTM,  ntree = 100)
 #reutersRFPred <- predict(reutersRFModel, reutersTestSetTM[, -(k + 1)])
 
 #Confusion matrix
@@ -228,46 +224,19 @@ reutersNBPredTM <- predict(reutersNBModelTM, reutersTestSetTM[, -(k + 1)])
 #(tune(randomForest, class ~ ., data = reutersDFTM, cross = 10, best.model = TRUE))
 
 # SUPPORT VECTOR MACHINES - topic models
-reutersSVMModel <- svm(class ~ ., data = reutersTrainSetTM, probability=T)
-reutersSVMPred <- predict(reutersSVMModel, reutersTestSetTM[, -(k + 1)])
+reutersSVMModel <- svm(class ~ ., data = reutersTrainSetTM,  cost = 100, gamma = 1)
+reutersSVMPred <- predict(reutersSVMModel,  reutersTestSetTM[, -(k+1)])
 
-(reutersSVMConfMatrix <- table(Predicted = reutersSVMPred, Real = reutersTestSetTM[, k + 1]))
+(reutersSVMConfMatrix <- table(Predicted = reutersSVMPred, Real = reutersTestSetTM[1:length(reutersSVMPred), k+1]))
 
 #Compare classifier performance using 10 cross validation
 (tune(svm, class ~ ., data = reutersDFTM, cross = 10, best.model = TRUE))
+#Error estimation of ‘svm’ using 10-fold cross validation: 0.2620144
 
 
 ```
 ```{r}
-# Measures
-Measures = function(mydata){
-  D = sum(mydata)   # number of instances
-  n <- nrow(mydata) 
-  TP = array()       
-  TN = array()       
-  FP = array()       
-  FN = array()      
-  Accuracy = array()         
-  Recall = array()         
-  Precision = array()       
-  MacroAverage = list()
-  MicroAverage = list()
-  for(i in 1:n){
-    TP[i] = mydata[i,i]
-    FP[i] = sum(mydata[i,]) - TP[i]
-    FN[i] = sum(mydata[,i])- TP[i] 
-    Accuracy[i] = TP[i]/colSums(mydata)[i]
-    Recall[i] = TP[i]/(TP[i]+FN[i])
-    Precision[i] = TP[i]/(TP[i]+FP[i])
-  }
-  Mtable <- data.frame(TP, FP, FN, Accuracy, Recall, Precision, row.names = row.names(mydata))
-  MicroAverage$Recall <- sum(Mtable[,1])/(sum(Mtable[,c(1,3)]))
-  MicroAverage$Precision <- sum(Mtable[,1])/(sum(Mtable[,c(1,2)]))
-  MacroAverage$Recall <- sum(Mtable[,5], na.rm = TRUE)/n
-  MacroAverage$Precision <- sum(Mtable[,6], na.rm = TRUE)/n
-  output.list <- list("Performance table:" = Mtable, "MicroAveraging" = MicroAverage, "MacroAveraging" = MacroAverage)
-  return(output.list)
-}
+
 
 PerfMeasures <- function(confMatrix)
 {
@@ -281,38 +250,68 @@ PerfMeasures <- function(confMatrix)
         recall = array()
         precision = array()
         f_measure = array()
+        macroAverage = list()
+        microAverage = list()
         
         for(k in 1:nrow(confMatrix)) 
         {
             TP[k] = confMatrix[k,k]
-            TN[k] = sum(confMatrix[-k,-k])
-            FP[k] = sum(confMatrix[,k])
-            FN[k] = sum(confMatrix[k,])
+            FP[k] = sum(confMatrix[k,]) - TP[k]
+            FN[k] = sum(confMatrix[,k]) - TP[k]
+           
             
-            accuracy[k]  = (TP[k]+TN[k]) / nInstance
+            accuracy[k]  = TP[k] / colSums(confMatrix)[k]
             recall[k]    = TP[k] / (TP[k] + FN[k])
             precision[k] = TP[k] / (TP[k] + FP[k])
             f_measure[k] = 2 * precision[k] * recall[k] / (precision[k] + recall[k])    
         }
-        TP[nrow(confMatrix)+1] = mean(TP[1:nrow(confMatrix)], na.rm=TRUE)
-        TN[nrow(confMatrix)+1] = mean(TN[1:nrow(confMatrix)], na.rm=TRUE)
-        FP[nrow(confMatrix)+1] = mean(FP[1:nrow(confMatrix)], na.rm=TRUE)
-        FN[nrow(confMatrix)+1] = mean(FN[1:nrow(confMatrix)], na.rm=TRUE)
-        
-        avgAcc = mean(accuracy[1:nrow(confMatrix)],  na.rm=TRUE)
-        accuracy[nrow(confMatrix)+1]  = avgAcc
-        recall[nrow(confMatrix)+1]    = mean(recall[1:nrow(confMatrix)],    na.rm=TRUE)
-        precision[nrow(confMatrix)+1] = mean(precision[1:nrow(confMatrix)] ,na.rm=TRUE)
-        f_measure[nrow(confMatrix)+1] = mean(f_measure[1:nrow(confMatrix)], na.rm=TRUE)
-        
-     
-        result = data.frame(TP, TN , FP, FN, accuracy, 
-                            recall, precision, f_measure,
-                            row.names=c(row.names(confMatrix), "Model Average"))
-        
-        return(list("Performance measures" =result, "AvgAccuracy" = avgAcc ))
+       
+       perfMeasures <- data.frame(TP,FP, FN, accuracy, recall, precision,f_measure, row.names = row.names(confMatrix))
+       
+       microAverage$Recall <- sum(perfMeasures[,1])/(sum(perfMeasures[,c(1,3)]))
+       microAverage$Precision <- sum(perfMeasures[,1])/(sum(perfMeasures[,c(1,2)]))
+       macroAverage$Recall <- sum(perfMeasures[,5], na.rm = TRUE)/ nInstance
+       macroAverage$Precision <- sum(perfMeasures[,6], na.rm = TRUE)/ nInstance
+       
+  return(list("Performance measures" = perfMeasures, "MicroAveraging" = microAverage, "Macro Averaging" = macroAverage))
+ 
 }
 
-PerfMeasures(reuterstNBModel)
-PerfMeasures(reuterstNBModelTM)
-PerfMeasures(reutersSVMModel)
+PerfMeasures(reutersNBConfMatrix)
+PerfMeasures(reutersNBConfMatrixTM)
+PerfMeasures(reutersSVMConfMatrix)
+
+
+#4. Clustering
+#install.packages('cluster')
+#install.packages('flexclust')
+#install.packages('fpc')
+require(cluster)
+require(flexclust)
+require(fpc)
+
+
+reutersClustering <- reutersDFTM
+reutersClustering$class <- NULL
+
+reutersScale <- scale(reutersClustering)
+reutersDist <- dist(reutersScale, method = "euclidean") 
+
+# Clustering using CLARA
+reutersClara <- clara(na.omit(reutersScale), 10, samples=50)
+(claraKm <- table(reutersDFTM[1:length(reutersClara),]$class, reutersClara$clustering))
+randIndex(claraKm)
+plotcluster(na.omit(reutersScale), reutersClara$clustering)
+
+# k-means Clustering
+reuterskMean <- kmeans(na.omit(reutersScale), 10)
+(reuterskMeanKm <- table(reutersDFTM$class, reuterskMean$cluster[1:nrow(reutersDFTM)]))
+randIndex(reuterskMeanKm)
+plotcluster(na.omit(reutersScale), reuterskMean$cluster)
+
+
+# Comparing the similarity of two clusterings
+#cluster.stats(reutersDist, reutersClara$clustering, reuterskMean$cluster)
+
+
+```
