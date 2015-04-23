@@ -18,7 +18,7 @@ library(stringr) #for str_count
 install.packages("SnowballC")
 library(SnowballC) #for stemming
 
-#install.packages("topicmodels")
+install.packages("topicmodels")
 require("topicmodels")
 
 ```
@@ -28,7 +28,7 @@ require("topicmodels")
 # Reading data from file
 reutersDataset = read.csv(file="reutersCSV.csv",header=T,sep=",")
 
-# Remove rows with 'empty' texts (texts, which length is less than 15 characers)
+# Remove rows with 'empty' texts ('empty', if has less than 5 words)
 
 toBeRemoved <- numeric(0)
 
@@ -43,15 +43,6 @@ for(i in 1:nrow(reutersDataset))
 }
 dataset <- reutersDataset[-toBeRemoved,]
 
-
-#Remove all documents with class different from 10  most  populous	classes,	namely:	(earn,	
-#acquisitions,	money-fx,	grain,	crude,	trade,	interest,	ship,	wheat,	corn).
-#datasetFiltered <- subset(reutersDataset, reutersDataset$topic.earn > 0 
-                    #    | reutersDataset$topic.acq> 0
-                    #    | reutersDataset$topic.money.fx > 0 | reutersDataset$topic.grain > 0
-                  #      | reutersDataset$topic.crude > 0    | reutersDataset$topic.trade > 0
-                  #     | reutersDataset$topic.interest > 0 | reutersDataset$topic.ship > 0
-                    #    | reutersDataset$topic.wheat > 0    | reutersDataset$topic.corn > 0)
 
 topTenTopics <- c("topic.earn","topic.acq","topic.money.fx","topic.grain","topic.crude","topic.trade","topic.interest","topic.ship","topic.wheat","topic.corn")
 
@@ -70,8 +61,6 @@ purposeList <- dataset[topTopicsIndexes, ]$purpose
 # Get list of classes for documents 
 # Since some documents are assigned multiple topics, we will assign only majority class
 classList <- as.factor(colnames(datasetFiltered)[max.col(t(t(datasetFiltered) * colSums(datasetFiltered)))])
-
-#classList <- factor(classList)    # this line drops the empty level in the factor 
 
 ```
 
@@ -101,7 +90,7 @@ reutersDtm <- DocumentTermMatrix(reutersCorpus,
 # Reduce the matrix to words which occur in at least 15 documents
 reutersDtmFiltered <- reutersDtm[ , which(table(reutersDtm$j) >= 15)]
 
-#reutersDtmFiltered <- removeSparseTerms(reutersDtmFiltered, 0.999)
+reutersDtmFiltered <- removeSparseTerms(reutersDtmFiltered, 0.999)
 reutersDtmFiltered <- reutersDtmFiltered[rowSums(as.matrix(reutersDtmFiltered)) > 0,]
 
 reutersDtmTfIdf <- weightTfIdf(reutersDtmFiltered)
@@ -119,7 +108,7 @@ length(trainIndexList)
 length(testIndexList)
 
 
-# We will use top N terms from BOW for classification
+# We will use top 100 terms from BOW for classification
 nTerm = 100    
 # Sort by decreasing order of column sums so that top terms will be first
 reutersDTMTfIdfTrain <- reutersDtmTfIdf[trainIndexList, ]
@@ -152,10 +141,10 @@ reutersLdaModel <- LDA(reutersDTMTrainAndTest, k)
 reutersDFTMWhole <- as.data.frame(reutersLdaModel@gamma) 
 
 # Split into train and test sets
-reutersTrainSetTM <- as.data.frame(reutersDFTM[trainIndexList, ])
+reutersTrainSetTM <- as.data.frame(reutersDFTMWhole[trainIndexList, ])
 reutersTrainSetTM$class<-classList[trainIndexList]
 
-reutersTestSetTM <- as.data.frame(reutersDFTM[testIndexList, ])
+reutersTestSetTM <- as.data.frame(reutersDFTMWhole[testIndexList, ])
 reutersTestSetTM$class<-classList[testIndexList]
 
 reutersDFTM <- rbind(reutersTrainSetTM, reutersTestSetTM)
@@ -167,9 +156,6 @@ reutersDFTM <- rbind(reutersTrainSetTM, reutersTestSetTM)
 
 ```
 
-
-
-
 ```{r}
 
 #3 Classification
@@ -177,7 +163,8 @@ reutersDFTM <- rbind(reutersTrainSetTM, reutersTestSetTM)
 require(e1071)
 require(randomForest)
 
-# NAIVE BAYES on BOW
+# Try Naive Bayes with BOW and topic models
+# NAIVE BAYES - BOW
 reutersNBModelBOW <- naiveBayes(class ~ ., reutersTrainSetBOW)
 reutersNBPred <- predict(reutersNBModelBOW, reutersTestSetBOW[, -(nTerm + 1)])
 
@@ -185,7 +172,7 @@ reutersNBPred <- predict(reutersNBModelBOW, reutersTestSetBOW[, -(nTerm + 1)])
 (reutersNBConfMatrix <- table(Predicted = reutersNBPred, Real = reutersTestSetBOW[, nTerm + 1]))
 
 #Compare classifier performance using 10 cross validation
-(reutersNBError <- tune(naiveBayes, class ~ ., data = reutersDFBOW, cross = 10, best.model = T))
+(reutersNBError <- tune(naiveBayes, class ~ ., data = na.omit(reutersDFBOW), cross = 10, best.model = T))
 
 #Naive Bayes - topic Models
 
@@ -196,8 +183,7 @@ reutersNBPredTM <- predict(reutersNBModelTM, reutersTestSetTM[, -(k + 1)])
 (reutersNBConfMatrixTM <- table(Predicted = reutersNBPredTM, Real = reutersTestSetTM[, k + 1]))
 
 #Compare classifier performance using 10 cross validation
-(reutersNBErrorTM <- tune(naiveBayes, class ~ ., data = reutersDFTM, cross = 10, best.model = T))
-
+#(reutersNBErrorTM <- tune(naiveBayes, class ~ ., data = na.omit(reutersDFTM), cross = 10, best.model = T))
 
 #Naive Bayes - Bow and topic Models
 
@@ -208,7 +194,7 @@ reutersNBPredTM <- predict(reutersNBModelTM, reutersTestSetTM[, -(k + 1)])
 #(reutersNBConfMatrix <- table(Predicted = reutersNBPred, Real = reutersTestSet[, nTerm + k + 1]))
 
 #Compare classifier performance using 10 cross validation
-#(reutersNBError <- tune(naiveBayes, class ~ ., data = reutersDFTM, cross = 10, best.model = T))
+(reutersNBError <- tune(naiveBayes, class ~ ., data = reutersDFTM, cross = 10, best.model = T))
 
 # As we can see, topic models perform better
 
@@ -231,8 +217,6 @@ reutersSVMPred <- predict(reutersSVMModel,  reutersTestSetTM[, -(k+1)])
 
 #Compare classifier performance using 10 cross validation
 (tune(svm, class ~ ., data = reutersDFTM, cross = 10, best.model = TRUE))
-#Error estimation of ‘svm’ using 10-fold cross validation: 0.2620144
-
 
 ```
 ```{r}
@@ -283,13 +267,12 @@ PerfMeasures(reutersSVMConfMatrix)
 
 
 #4. Clustering
-#install.packages('cluster')
-#install.packages('flexclust')
-#install.packages('fpc')
+install.packages('cluster')
+install.packages('flexclust')
+install.packages('fpc')
 require(cluster)
 require(flexclust)
 require(fpc)
-
 
 reutersClustering <- reutersDFTM
 reutersClustering$class <- NULL
@@ -300,18 +283,18 @@ reutersDist <- dist(reutersScale, method = "euclidean")
 # Clustering using CLARA
 reutersClara <- clara(na.omit(reutersScale), 10, samples=50)
 (claraKm <- table(reutersDFTM[1:length(reutersClara),]$class, reutersClara$clustering))
-randIndex(claraKm)
+
 plotcluster(na.omit(reutersScale), reutersClara$clustering)
 
 # k-means Clustering
 reuterskMean <- kmeans(na.omit(reutersScale), 10)
 (reuterskMeanKm <- table(reutersDFTM$class, reuterskMean$cluster[1:nrow(reutersDFTM)]))
-randIndex(reuterskMeanKm)
+
 plotcluster(na.omit(reutersScale), reuterskMean$cluster)
 
 
 # Comparing the similarity of two clusterings
-#cluster.stats(reutersDist, reutersClara$clustering, reuterskMean$cluster)
+cluster.stats(reutersDist, reutersClara$clustering, reuterskMean$cluster)
 
 
 ```
